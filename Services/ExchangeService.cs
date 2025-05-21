@@ -91,7 +91,7 @@ namespace ArbitrageScanner.Services
                 new DataColumn("type", typeof(string)),
                 new DataColumn("expiry", typeof(string)),
                 new DataColumn("expiry_datetime", typeof(DateTime)),
-                new DataColumn("is_active", typeof(bool)),
+                new DataColumn("is_active", typeof(byte)), // Use byte for Nullable(UInt8)
                 new DataColumn("updated_time", typeof(DateTime))
             ]);
 
@@ -107,26 +107,40 @@ namespace ArbitrageScanner.Services
                     {
                         if (item.Value is Dictionary<string, object> itemDict)
                         {
-                            bool? is_active = null;
-                            if (itemDict["active"] is not null)
+                            // Map is_active to byte (0/1) or DBNull.Value
+                            object isActive;
+                            if (!itemDict.ContainsKey("active") || itemDict["active"] == null)
                             {
-                                if (itemDict["active"].ToString().ToLower() == "true")
-                                    is_active = true;
-                                else if (itemDict["active"].ToString().ToLower() == "false")
-                                    is_active = false;
+                                isActive = DBNull.Value;
+                            }
+                            else
+                            {
+                                var activeStr = itemDict["active"].ToString()?.ToLower();
+                                if (activeStr == "true")
+                                    isActive = (byte)1;
+                                else if (activeStr == "false")
+                                    isActive = (byte)0;
+                                else
+                                    isActive = DBNull.Value;
+                            }
+
+                            // Helper to get value or DBNull.Value
+                            object GetOrDbNull(string key)
+                            {
+                                return itemDict.ContainsKey(key) && itemDict[key] != null ? itemDict[key] : DBNull.Value;
                             }
 
                             data.Rows.Add(
                             [
-                                exchangeId,                     // exchangeId - Exchange ID
-                                itemDict["symbol"],             // symbols - Trading pair (e.g., BTC/USDT)
-                                itemDict["base"],               // base_currency - Base currency (e.g., BTC)
-                                itemDict["quote"],              // quote_currency - Quote currency (e.g., USDT)
-                                itemDict["type"],
-                                itemDict["expiry"],
-                                itemDict["expiryDatetime"],
-                                is_active,
-                                dateTime,                       // updated_time
+                                exchangeId,
+                                GetOrDbNull("symbol"),
+                                GetOrDbNull("base"),
+                                GetOrDbNull("quote"),
+                                GetOrDbNull("type"),
+                                GetOrDbNull("expiry"),
+                                GetOrDbNull("expiryDatetime"),
+                                isActive,
+                                dateTime
                             ]);
                         }
                     }
@@ -136,7 +150,7 @@ namespace ArbitrageScanner.Services
             }
             catch (Exception ex)
             {
-                logger.Error(ex, $"Error in method 'GetMarketsData', exchange {exchangeId}");
+                logger.Error(ex, $"Error in method 'GetMarketsData', exchange {exchangeId}: {ex}");
             }
             return data;
         }
@@ -176,22 +190,28 @@ namespace ArbitrageScanner.Services
                         }
 
                         // If the date is not filled, use the current date
-                        if (DateTime.TryParse(_ticker.Value.datetime, out DateTime _datetime))
+                        if (!string.IsNullOrEmpty(_ticker.Value.datetime) && DateTime.TryParse(_ticker.Value.datetime, out DateTime _datetime))
                         {
                             eventTime = _datetime;
                         }
+                        else
+                        {
+                            eventTime = DateTime.Now;
+                        }
+
+                        object GetOrDbNull(object? value) => value != null ? value : DBNull.Value;
 
                         data.Rows.Add(new object[]
                         {
-                        exchangeId,                     // exchangeId - Exchange ID
-                        _ticker.Key,                    // symbols - Trading pair (e.g., BTC/USDT)
-                        currencies[0],                  // base_currency - Base currency (e.g., BTC)
-                        currencies[1],                  // quote_currency - Quote currency (e.g., USDT)
-                        eventTime,                      // event_time
-                        _ticker.Value.bid,              // bid_price - ASK price
-                        _ticker.Value.ask,              // ask_price - BID price
-                        _ticker.Value.quoteVolume,      // quoteVolume
-                        updatedTime                     // updated_time
+                            exchangeId,
+                            _ticker.Key,
+                            currencies[0],
+                            currencies[1],
+                            eventTime,
+                            GetOrDbNull(_ticker.Value.bid),
+                            GetOrDbNull(_ticker.Value.ask),
+                            GetOrDbNull(_ticker.Value.quoteVolume),
+                            updatedTime
                         });
                     }
                 }
@@ -200,7 +220,7 @@ namespace ArbitrageScanner.Services
             }
             catch (Exception ex)
             {
-                logger.Error(ex, $"Error in method 'GetTickers', exchange {exchangeId}");
+                logger.Error(ex, $"Error in method 'GetTickers', exchange {exchangeId}: {ex}");
             }
             return data;
         }
@@ -208,12 +228,12 @@ namespace ArbitrageScanner.Services
         {
             var data = new DataTable();
             data.Columns.AddRange([
-                    new DataColumn("exchange_name", typeof(string)),
-                    new DataColumn("currency", typeof(string)),
-                    new DataColumn("is_active", typeof(bool)),
-                    new DataColumn("networks", typeof((string, double?, bool?, bool?)[])),
-                    new DataColumn("updated_time", typeof(DateTime))
-                ]);
+                new DataColumn("exchange_name", typeof(string)),
+                new DataColumn("currency", typeof(string)),
+                new DataColumn("is_active", typeof(byte)), // Use byte for Nullable(UInt8)
+                new DataColumn("networks", typeof(object)), // Use object for Array(Tuple(...))
+                new DataColumn("updated_time", typeof(DateTime))
+            ]);
             try
             {
                 int emptyData = 0;
@@ -224,14 +244,27 @@ namespace ArbitrageScanner.Services
                 {
                     foreach (var _currency in _currencies)
                     {
+                        // Map is_active to byte (0/1) or DBNull.Value
+                        object isActive = _currency.Value.active == null ? DBNull.Value : (_currency.Value.active == true ? (byte)1 : (byte)0);
+                        // Map networks to object[] of object[]
+
+                        object networks = _currency.Value.networks == null ? new object[0] :
+                            _currency.Value.networks.Select(p =>
+                                new object[]
+                                {
+                                    p.Key,
+                                    p.Value.fee.HasValue ? (object)p.Value.fee.Value : DBNull.Value,
+                                    p.Value.withdraw.HasValue ? (object)(p.Value.withdraw.Value ? (byte)1 : (byte)0) : DBNull.Value,
+                                    p.Value.active.HasValue ? (object)(p.Value.active.Value ? (byte)1 : (byte)0) : DBNull.Value
+                                }).ToArray();
+
                         data.Rows.Add([
-                                exchangeId,                 
-                                _currency.Value.code,
-                                _currency.Value.active,
-                                _currency.Value.networks != null ?  
-                                    _currency.Value.networks.Select(p => (p.Key, p.Value.fee, p.Value.withdraw, p.Value.active)).ToArray() : [],
-                                dateTime
-                            ]);
+                            exchangeId,
+                            _currency.Value.code,
+                            isActive,
+                            networks,
+                            dateTime
+                        ]);
                     }
                 }
 
@@ -240,7 +273,7 @@ namespace ArbitrageScanner.Services
             }
             catch (Exception ex)
             {
-                logger.Error(ex, $"Error in method 'GetCurrencies', exchange {exchangeId}");
+                logger.Error(ex, $"Error in method 'GetCurrencies', exchange {exchangeId}: {ex}");
             }
             return data;
         }
@@ -249,16 +282,24 @@ namespace ArbitrageScanner.Services
             try
             {
                 DateTime dateTime = DateTime.Now;
-                var orderBook =  await Exchanges[exchangeId].exchange.FetchOrderBook(symbol);
+                var orderBook = await Exchanges[exchangeId].exchange.FetchOrderBook(symbol);
+                var asks = orderBook.asks ?? new List<List<double>>();
+                var bids = orderBook.bids ?? new List<List<double>>();
+                var safeAsks = asks
+                    .Where(order => order != null && order.Count > 1)
+                    .Select(order => (price: order[0], volume: order[1]))
+                    .ToArray();
+                var safeBids = bids
+                    .Where(order => order != null && order.Count > 1)
+                    .Select(order => (price: order[0], volume: order[1]))
+                    .ToArray();
                 return new VerifyOrderBook()
                 {
-                    ExchangeName = exchangeId,                 
+                    ExchangeName = exchangeId,
                     Symbol = orderBook.symbol,
-                    Asks = orderBook.asks.Where(order => order.Count > 1)
-                              .Select(order => (price: order[0], volume: order[1])).ToArray(),
-                    Bids = orderBook.bids.Where(order => order.Count > 1)
-                              .Select(order => (price: order[0], volume: order[1])).ToArray(),
-                    UpdatedTime = orderBook.datetime is null ?  dateTime : Convert.ToDateTime(orderBook.datetime)
+                    Asks = safeAsks,
+                    Bids = safeBids,
+                    UpdatedTime = orderBook.datetime is null ? dateTime : Convert.ToDateTime(orderBook.datetime)
                 };
             }
             catch (Exception ex)

@@ -1,0 +1,4 @@
+docker stop clickhouse-server
+docker rm clickhouse-server
+docker run -d --name clickhouse-server -p 8123:8123 -p 9000:9000 -e CLICKHOUSE_PASSWORD=xxx clickhouse/clickhouse-server
+curl "http://localhost:8123/?user=default&password=xxx" --data-binary "SELECT 1"

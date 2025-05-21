@@ -127,16 +127,16 @@ namespace ArbitrageScanner.Services
                         td.ask_price,
                         td.event_time
                     FROM arbitrage.trading_data td FINAL
-      	            JOIN (SELECT exchange_name, MAX(updated_time) max_updated_time
-	 	            		FROM arbitrage.trading_data FINAL
-    	            		GROUP BY exchange_name) ltd
-    	            ON td.exchange_name = ltd.exchange_name
-    	            AND td.updated_time = ltd.max_updated_time
+                    JOIN (SELECT exchange_name, MAX(updated_time) max_updated_time
+                            FROM arbitrage.trading_data FINAL
+                            GROUP BY exchange_name) ltd
+                    ON td.exchange_name = ltd.exchange_name
+                    AND td.updated_time = ltd.max_updated_time
                     WHERE bid_price is not NULL 
-                    	AND ask_price is not NULL
-                    	AND quote_volume > {{min_volume:Int64}}
+                        AND ask_price is not NULL
+                        AND quote_volume > {{min_volume:Int64}}
                         AND ({{no_whitelist:Bool}} OR td.exchange_name IN({{whitelist:String}}))
-        	            AND date_diff('second', {{now:DateTime}}, td.updated_time) < {{lag_updated:Int64}}
+                        AND date_diff('second', {{now:DateTime}}, td.updated_time) < {{lag_updated:Int64}}
                 ),
             
                 -- Отфильтровываем записи только для спотовых рынков из таблицы market_data
@@ -176,9 +176,9 @@ namespace ArbitrageScanner.Services
                             ),                           
                             arrayFilter(t -> indexOf(
                                     arrayIntersect(
-                                    	arrayMap(tuple -> tuple.1, arrayFilter(x -> x.4 = 1 OR x.4 IS NULL, c1.networks)),
-                                    	arrayMap(tuple -> tuple.1, arrayFilter(x -> x.4 = 1 OR x.4 IS NULL, c2.networks))
-                                	), t.1) > 0, c1.networks)
+                                        arrayMap(tuple -> tuple.1, arrayFilter(x -> x.4 = 1 OR x.4 IS NULL, c1.networks)),
+                                        arrayMap(tuple -> tuple.1, arrayFilter(x -> x.4 = 1 OR x.4 IS NULL, c2.networks))
+                                    ), t.1) > 0, c1.networks)
                         ) AS common_networks
                     FROM latest_currencies c1
                     JOIN latest_currencies c2 ON c1.currency = c2.currency
@@ -379,7 +379,8 @@ namespace ArbitrageScanner.Services
             }
             catch (Exception ex)
             {
-                _logger.Error(ex, $"Error exporting to {tableName}");
+                _logger.Error($"Error exporting to {tableName}: {ex.Message}\n{ex.StackTrace}\nInnerException: {ex.InnerException}");
+                _logger.Error(ex, $"Error exporting to {tableName} (full exception)");
                 return false;
             }
         }
